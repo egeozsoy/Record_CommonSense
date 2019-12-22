@@ -1,8 +1,10 @@
 import json
 import numpy as np
-from transformers import BasicTokenizer
-import collections
-from transformers.tokenization_bert import whitespace_tokenize, _is_punctuation, load_vocab
+
+from torch import nn
+import torch
+from typing import List
+from flair.embeddings import StackedEmbeddings, WordEmbeddings, FlairEmbeddings, Sentence, TokenEmbeddings
 
 preprocess_data = False
 
@@ -71,95 +73,103 @@ if preprocess_data:
     with open('train_processed.json', 'w') as f:
         json.dump(prepared_data, f)
 
+
+class CustomModel(nn.Module):
+    def __init__(self, embeddings):
+        super(CustomModel, self).__init__()
+        self.embeddings = embeddings
+
+    def get_sentence_tensor(self, sentences):
+        self.embeddings.embed(sentences)
+
+        lengths: List[int] = [len(sentence.tokens) for sentence in sentences]
+        longest_token_sequence_in_batch: int = max(lengths)
+
+        # initialize zero-padded word embeddings tensor
+        sentence_tensor = torch.zeros(
+            [
+                len(sentences),
+                longest_token_sequence_in_batch,
+                self.embeddings.embedding_length,
+            ],
+            dtype=torch.float
+        )
+
+        for s_id, sentence in enumerate(sentences):
+            # fill values with word embeddings
+            sentence_tensor[s_id][: len(sentence)] = torch.cat(
+                [token.get_embedding().unsqueeze(0) for token in sentence], 0
+            )
+
+        return sentence_tensor
+
+    def forward(self, passage_sentences, answer_sentences):
+        passage_sentences = [passage_sentences]
+        answer_sentences = [answer_sentences]
+
+        passage_tensor = self.get_sentence_tensor(passage_sentences)
+        answer_tensor = self.get_sentence_tensor(answer_sentences)
+
+        print('h')
+
+
+class CustomEmbeddings(TokenEmbeddings):
+
+    def __init__(self):
+        self.name: str = 'custom_embeddings'
+        self.__embedding_length: int = 51
+        super().__init__()
+
+    @property
+    def embedding_length(self) -> int:
+        return self.__embedding_length
+
+    def _add_embeddings_internal(self, sentences: List[Sentence]) -> List[Sentence]:
+
+        for i, sentence in enumerate(sentences):
+
+            for token, token_idx in zip(sentence.tokens, range(len(sentence.tokens))):
+                word_embedding = torch.zeros((51)).float()
+
+                # one hot encode our special tokens
+                if '[ANS]' in token.text:
+                    word_embedding[-1] = 1
+
+                elif '[ENT' in token.text:
+                    token_id = int(token.text.split('[ENT')[-1].split(']')[0])
+                    word_embedding[token_id] = 1
+
+                token.set_embedding(self.name, word_embedding)
+
+        return sentences
+
+    def __str__(self):
+        return self.name
+
+    def extra_repr(self):
+        return f"'{self.embeddings}'"
+
+
+embeddings = StackedEmbeddings(
+    [
+        WordEmbeddings('glove'),
+        FlairEmbeddings('news-forward'),
+        FlairEmbeddings('news-backward'),
+        CustomEmbeddings(),
+
+    ]
+)
+
+model = CustomModel(embeddings)
 prepared_data = []
 special_tokens = ['[ENT{}]'.format(i) for i in range(51)] + ['[ANS]']
-
-
-class CustomTokenizer(BasicTokenizer):
-
-    def __init__(self, do_lower_case, additional_tokens, vocab_file='vocab.txt'):
-        super(CustomTokenizer, self).__init__(do_lower_case, never_split=additional_tokens)
-
-        self.vocab = load_vocab(vocab_file)
-
-        for idx, additional_token in enumerate(additional_tokens):
-            self.vocab[additional_token] = 100000 + idx
-
-        self.unk_token = "[UNK]"
-        self.ids_to_tokens = collections.OrderedDict(
-            [(ids, tok) for tok, ids in self.vocab.items()])
-
-    def _run_split_on_punc(self, text, never_split=None):
-        """Splits punctuation on a piece of text."""
-        if never_split is not None and text in never_split:
-            return [text]
-        chars = list(text)
-        i = 0
-        start_new_word = True
-        output = []
-        while i < len(chars):
-            char = chars[i]
-            if _is_punctuation(char) and char is not '[' and char is not ']':
-                output.append([char])
-                start_new_word = True
-            else:
-                if start_new_word:
-                    output.append([])
-                start_new_word = False
-                output[-1].append(char)
-            i += 1
-
-        return ["".join(x) for x in output]
-
-    def _convert_token_to_id(self, token):
-        """ Converts a token (str/unicode) in an id using the vocab. """
-        return self.vocab.get(token, self.vocab.get(self.unk_token))
-
-    def _convert_id_to_token(self, index):
-        """Converts an index (integer) in a token (string/unicode) using the vocab."""
-        return self.ids_to_tokens.get(index, self.unk_token)
-
-    def convert_tokens_to_string(self, tokens):
-        """ Converts a sequence of tokens (string) in a single string. """
-        out_string = ' '.join(tokens).replace(' ##', '').strip()
-        return out_string
-
-    def convert_tokens_to_ids(self, tokens):
-        all_ids = list(self._convert_token_to_id(token) for token in tokens)
-        return all_ids
-
-    def convert_ids_to_tokens(self, ids):
-        all_ids = list(self._convert_id_to_token(id) for id in ids)
-        return all_ids
-
-    def tokenize(self, text, never_split=None):
-        never_split = self.never_split + (never_split if never_split is not None else [])
-        text = self._clean_text(text)
-        if self.tokenize_chinese_chars:
-            text = self._tokenize_chinese_chars(text)
-        orig_tokens = whitespace_tokenize(text)
-        split_tokens = []
-        for token in orig_tokens:
-            if self.do_lower_case and token not in never_split:
-                token = token.lower()
-                token = self._run_strip_accents(token)
-
-            # This is the only change to the standad version, we want to preserve our entities tokens
-
-            split_tokens.extend(self._run_split_on_punc(token, never_split))
-
-        output_tokens = whitespace_tokenize(" ".join(split_tokens))
-        return output_tokens
-
-
-tokenizer = CustomTokenizer(do_lower_case=False, additional_tokens=special_tokens)
 
 with open('train_processed.json') as f:
     json_file = json.load(f)
 
     for (passage_text, answer_text, answer_vector) in json_file:
-        tokenized_passage_text = tokenizer.tokenize(passage_text)
-        passage_text_ids = tokenizer.convert_tokens_to_ids(tokenized_passage_text)
-        tokenized_answer_text = tokenizer.tokenize(answer_text)
-        answer_text_ids = tokenizer.convert_tokens_to_ids(tokenized_answer_text)
+        passage_sentence = Sentence(passage_text)
+        answer_sentence = Sentence(answer_text)
         answer_vector = np.array(answer_vector)
+
+        forward_pass = model(passage_sentence, answer_sentence)
