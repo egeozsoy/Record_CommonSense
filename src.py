@@ -5,6 +5,9 @@ from torch import nn
 import torch
 from typing import List
 from flair.embeddings import StackedEmbeddings, WordEmbeddings, FlairEmbeddings, Sentence, TokenEmbeddings
+from torch.utils.data import Dataset, DataLoader
+from torch.optim.adamw import AdamW
+from sklearn.model_selection import train_test_split
 
 preprocess_data = False
 
@@ -16,7 +19,7 @@ if preprocess_data:
 
         prepared_data = []
 
-        for data in datas[:10]:
+        for data in datas:
             # One element of data
             counter = 0
             entities = data['passage']['entities']
@@ -78,6 +81,8 @@ class CustomModel(nn.Module):
     def __init__(self, embeddings):
         super(CustomModel, self).__init__()
         self.embeddings = embeddings
+        self.lstm = nn.LSTM(self.embeddings.embedding_length, 128, num_layers=3, batch_first=True, bidirectional=True)
+        self.linear = nn.Linear(512, 50)
 
     def get_sentence_tensor(self, sentences):
         self.embeddings.embed(sentences)
@@ -104,13 +109,17 @@ class CustomModel(nn.Module):
         return sentence_tensor
 
     def forward(self, passage_sentences, answer_sentences):
-        passage_sentences = [passage_sentences]
-        answer_sentences = [answer_sentences]
-
         passage_tensor = self.get_sentence_tensor(passage_sentences)
         answer_tensor = self.get_sentence_tensor(answer_sentences)
 
-        print('h')
+        # Pooling might be better, right now we are just taking the last element
+        passage_output = self.lstm(passage_tensor)[0][:, -1, :]
+        answer_output = self.lstm(answer_tensor)[0][:, -1, :]
+
+        # Todo might be smart to filter out 0 paddings using something like padpackedtensors etc.
+        final_output = self.linear(torch.cat([passage_output, answer_output],dim=-1))
+
+        return final_output
 
 
 class CustomEmbeddings(TokenEmbeddings):
@@ -150,10 +159,26 @@ class CustomEmbeddings(TokenEmbeddings):
         return f"'{self.embeddings}'"
 
 
+class CustomDataset(Dataset):
+    def __init__(self, file_path):
+        with open(file_path) as f:
+            self.json_file = json.load(f)
+
+    def __len__(self) -> int:
+        return len(self.json_file)
+
+    def __getitem__(self, index: int):
+        passage_text, answer_text, answer_vector = self.json_file[index]
+        passage_sentence = Sentence(passage_text)
+        answer_sentence = Sentence(answer_text)
+        answer_vector = torch.Tensor(np.array(answer_vector))
+        return passage_sentence, answer_sentence, answer_vector
+
+
 embeddings = StackedEmbeddings(
     [
         WordEmbeddings('glove'),
-        FlairEmbeddings('news-forward'),
+        FlairEmbeddings('news-forward'),  # Maybe do pooled
         FlairEmbeddings('news-backward'),
         CustomEmbeddings(),
 
@@ -161,15 +186,26 @@ embeddings = StackedEmbeddings(
 )
 
 model = CustomModel(embeddings)
-prepared_data = []
-special_tokens = ['[ENT{}]'.format(i) for i in range(51)] + ['[ANS]']
+loss_fn = nn.BCEWithLogitsLoss()
+optimizer = AdamW(model.parameters())
 
-with open('train_processed.json') as f:
-    json_file = json.load(f)
+train_dataset = CustomDataset('train_processed.json')
+# test_dataset = CustomDataset(X_test, y_test)
+# collate fn overwrite is necessary as dataset is not returning tensors
+train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=1, pin_memory=True, collate_fn=lambda x: x)
+# test_loader = DataLoader(test_dataset, batch_size=32, shuffle=True, num_workers=1, pin_memory=True)
 
-    for (passage_text, answer_text, answer_vector) in json_file:
-        passage_sentence = Sentence(passage_text)
-        answer_sentence = Sentence(answer_text)
-        answer_vector = np.array(answer_vector)
+for idx,batch in enumerate(train_loader):
+    passage_sentences, answer_sentences, y = list(zip(*batch))
+    y = torch.stack(y)
+    output = model(passage_sentences, answer_sentences)
 
-        forward_pass = model(passage_sentence, answer_sentence)
+    loss = loss_fn(output,y)
+
+    loss.backward()
+    optimizer.step()
+    optimizer.zero_grad()
+
+
+    if idx % 10 == 0:
+        print(loss.item())
