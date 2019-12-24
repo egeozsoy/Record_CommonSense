@@ -3,6 +3,8 @@ from typing import List
 import torch
 from torch import nn
 
+from configurations import device
+
 
 class CustomModel(nn.Module):
     def __init__(self, embeddings):
@@ -36,8 +38,8 @@ class CustomModel(nn.Module):
         return sentence_tensor
 
     def forward(self, passage_sentences, answer_sentences):
-        passage_tensor = self.get_sentence_tensor(passage_sentences)
-        answer_tensor = self.get_sentence_tensor(answer_sentences)
+        passage_tensor = self.get_sentence_tensor(passage_sentences).to(device=device)
+        answer_tensor = self.get_sentence_tensor(answer_sentences).to(device=device)
 
         # Pooling might be better, right now we are just taking the last element
         passage_output = self.lstm(passage_tensor)[0][:, -1, :]

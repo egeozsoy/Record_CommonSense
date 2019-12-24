@@ -23,13 +23,17 @@ class CustomEmbeddings(TokenEmbeddings):
             for token, token_idx in zip(sentence.tokens, range(len(sentence.tokens))):
                 word_embedding = torch.zeros((51)).float()
 
-                # one hot encode our special tokens
-                if '[ANS]' in token.text:
-                    word_embedding[-1] = 1
+                try:
+                    # one hot encode our special tokens
+                    if '[ANS]' in token.text:
+                        word_embedding[-1] = 1
 
-                elif '[ENT' in token.text:
-                    token_id = int(token.text.split('[ENT')[-1].split(']')[0])
-                    word_embedding[token_id] = 1
+                    elif '[ENT' in token.text:
+                        token_id = int(token.text.split('[ENT')[-1].split(']')[0])
+                        word_embedding[token_id] = 1
+
+                except Exception as e:
+                    pass
 
                 token.set_embedding(self.name, word_embedding)
 
