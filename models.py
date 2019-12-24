@@ -7,11 +7,11 @@ from configurations import device
 
 
 class CustomModel(nn.Module):
-    def __init__(self, embeddings):
+    def __init__(self, embeddings, hidden_state=256, num_layers=3):
         super(CustomModel, self).__init__()
         self.embeddings = embeddings
-        self.lstm = nn.LSTM(self.embeddings.embedding_length, 128, num_layers=3, batch_first=True, bidirectional=True)
-        self.linear = nn.Linear(512, 50)
+        self.lstm = nn.LSTM(self.embeddings.embedding_length, hidden_state, num_layers=num_layers, batch_first=True, bidirectional=True)
+        self.linear = nn.Linear(hidden_state * 4, 50)
 
     def get_sentence_tensor(self, sentences):
         self.embeddings.embed(sentences)

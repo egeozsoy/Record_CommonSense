@@ -30,7 +30,7 @@ embeddings = StackedEmbeddings(
 
 model = CustomModel(embeddings).to(device=device)
 loss_fn = nn.BCEWithLogitsLoss()
-optimizer = AdamW(model.parameters())
+optimizer = AdamW(model.parameters(),lr=1e-4)
 
 train_dataset = CustomDataset('train_processed.json')
 dev_dataset = CustomDataset('dev_processed.json')
@@ -86,3 +86,8 @@ for idx, batch in enumerate(dev_loader):
         print(f'Accuracy {correct_guesses / total_guesses}')
 
 #  cp *.py /Users/egeozsoy/Google_Drive/Python\ Projects/Record_CommonSense/.
+# function ClickConnect(){
+# console.log("Working");
+# document.querySelector("colab-toolbar-button#connect").click()
+# }
+# setInterval(ClickConnect,60000)
