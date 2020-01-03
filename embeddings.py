@@ -11,6 +11,7 @@ class CustomEmbeddings(TokenEmbeddings):
         self.name: str = 'custom_embeddings'
         self.__embedding_length: int = 51
         super().__init__()
+        self.static_embeddings = True
 
     @property
     def embedding_length(self) -> int:

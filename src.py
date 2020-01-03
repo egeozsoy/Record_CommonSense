@@ -1,5 +1,3 @@
-from time import time
-
 from torch import nn
 import torch
 from torch.utils.data import DataLoader
@@ -30,60 +28,68 @@ embeddings = StackedEmbeddings(
 
 model = CustomModel(embeddings).to(device=device)
 loss_fn = nn.BCEWithLogitsLoss()
-optimizer = AdamW(model.parameters(),lr=1e-4)
+optimizer = AdamW(model.parameters(), lr=1e-3)
 
-train_dataset = CustomDataset('train_processed.json')
-dev_dataset = CustomDataset('dev_processed.json')
+train_dataset = CustomDataset('train_processed.json', embeddings)
+dev_dataset = CustomDataset('dev_processed.json', embeddings)
 # collate fn overwrite is necessary as dataset is not returning tensors
-train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=1, pin_memory=True, collate_fn=lambda x: x)
-dev_loader = DataLoader(dev_dataset, batch_size=32, shuffle=True, num_workers=1, pin_memory=True, collate_fn=lambda x: x)
+num_workers = 0 if device.type == 'cpu' else 1
+train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=num_workers, pin_memory=True, collate_fn=lambda x: x)
+dev_loader = DataLoader(dev_dataset, batch_size=32, shuffle=True, num_workers=num_workers, pin_memory=True, collate_fn=lambda x: x)
 
-total_loss = 0.0
-start_time = time()
-for idx, batch in enumerate(train_loader):
-    passage_sentences, answer_sentences, y = list(zip(*batch))
-    y = torch.stack(y).to(device=device)
-    output = model(passage_sentences, answer_sentences)
+for epoch in range(1000):
+    total_loss = 0.0
+    model.train()
+    print(f'Epoch {epoch}')
+    print('Training Model')
+    for idx, batch in enumerate(train_loader):
+        passage_sentences, answer_sentences, y = list(zip(*batch))
+        y = torch.stack(y).to(device=device)
+        output = model(passage_sentences, answer_sentences)
 
-    loss = loss_fn(output, y)
+        loss = loss_fn(output, y)
 
-    loss.backward()
-    optimizer.step()
-    optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
 
-    total_loss += loss.item()
+        total_loss += loss.item()
 
-    if idx % 10 == 0 and idx != 0:
-        print(f'Loss: {total_loss}, Took: {time() - start_time}')
-        total_loss = 0.0
+        if idx % 10 == 0:
+            print(f'Training Loss: {total_loss}')
+            total_loss = 0.0
 
-        # Using maximum of output, select corresponding elements from labels https://discuss.pytorch.org/t/how-to-index-a-tensor-with-another-tensor/25031
-        y_selected = y.gather(1, torch.argmax(output, dim=1, keepdim=True))
-        correct_guesses = float(torch.sum(y_selected).item())
-        total_guesses = float(y_selected.shape[0])
+            # Using maximum of output, select corresponding elements from labels https://discuss.pytorch.org/t/how-to-index-a-tensor-with-another-tensor/25031
+            y_selected = y.gather(1, torch.argmax(output, dim=1, keepdim=True))
+            correct_guesses = float(torch.sum(y_selected).item())
+            total_guesses = float(y_selected.shape[0])
 
-        print(f'Accuracy {correct_guesses / total_guesses}')
+            print(f'Training Acc: {correct_guesses / total_guesses}')
 
-total_loss = 0.0
-for idx, batch in enumerate(dev_loader):
-    passage_sentences, answer_sentences, y = list(zip(*batch))
-    y = torch.stack(y).to(device=device)
-    output = model(passage_sentences, answer_sentences)
+    total_loss = 0.0
+    model.eval()
+    print('Validating Model')
 
-    loss = loss_fn(output, y)
+    with torch.no_grad():
+        for idx, batch in enumerate(dev_loader):
+            passage_sentences, answer_sentences, y = list(zip(*batch))
+            y = torch.stack(y).to(device=device)
+            output = model(passage_sentences, answer_sentences)
 
-    total_loss += loss.item()
+            loss = loss_fn(output, y)
 
-    if idx % 10 == 0 and idx != 0:
-        print(f'Loss: {total_loss}, Took: {time() - start_time}')
-        total_loss = 0.0
+            total_loss += loss.item()
 
-        # Using maximum of output, select corresponding elements from labels https://discuss.pytorch.org/t/how-to-index-a-tensor-with-another-tensor/25031
-        y_selected = y.gather(1, torch.argmax(output, dim=1, keepdim=True))
-        correct_guesses = float(torch.sum(y_selected).item())
-        total_guesses = float(y_selected.shape[0])
+            if idx % 10 == 0:
+                print(f'Validation Loss: {total_loss}')
+                total_loss = 0.0
 
-        print(f'Accuracy {correct_guesses / total_guesses}')
+                # Using maximum of output, select corresponding elements from labels https://discuss.pytorch.org/t/how-to-index-a-tensor-with-another-tensor/25031
+                y_selected = y.gather(1, torch.argmax(output, dim=1, keepdim=True))
+                correct_guesses = float(torch.sum(y_selected).item())
+                total_guesses = float(y_selected.shape[0])
+
+                print(f'Validation Acc: {correct_guesses / total_guesses}')
 
 #  cp *.py /Users/egeozsoy/Google_Drive/Python\ Projects/Record_CommonSense/.
 # function ClickConnect(){
