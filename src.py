@@ -33,14 +33,13 @@ optimizer = AdamW(model.parameters(), lr=1e-3)
 train_dataset = CustomDataset('train_processed.json', embeddings)
 dev_dataset = CustomDataset('dev_processed.json', embeddings)
 # collate fn overwrite is necessary as dataset is not returning tensors
-num_workers = 0 if device.type == 'cpu' else 1
-train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=num_workers, pin_memory=True, collate_fn=lambda x: x)
-dev_loader = DataLoader(dev_dataset, batch_size=32, shuffle=True, num_workers=num_workers, pin_memory=True, collate_fn=lambda x: x)
+train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=0, pin_memory=True, collate_fn=lambda x: x)
+dev_loader = DataLoader(dev_dataset, batch_size=32, shuffle=True, num_workers=0, pin_memory=True, collate_fn=lambda x: x)
 
 for epoch in range(1000):
     total_loss = 0.0
     model.train()
-    print(f'Epoch {epoch}')
+    print(f'Epoch: {epoch}')
     print('Training Model')
     for idx, batch in enumerate(train_loader):
         passage_sentences, answer_sentences, y = list(zip(*batch))
@@ -64,7 +63,7 @@ for epoch in range(1000):
             correct_guesses = float(torch.sum(y_selected).item())
             total_guesses = float(y_selected.shape[0])
 
-            print(f'Training Acc: {correct_guesses / total_guesses}')
+            print(f'Training Acc: {correct_guesses / total_guesses}\n')
 
     total_loss = 0.0
     model.eval()
@@ -89,11 +88,13 @@ for epoch in range(1000):
                 correct_guesses = float(torch.sum(y_selected).item())
                 total_guesses = float(y_selected.shape[0])
 
-                print(f'Validation Acc: {correct_guesses / total_guesses}')
+                print(f'Validation Acc: {correct_guesses / total_guesses}\n')
 
 #  cp *.py /Users/egeozsoy/Google_Drive/Python\ Projects/Record_CommonSense/.
-# function ClickConnect(){
-# console.log("Working");
-# document.querySelector("colab-toolbar-button#connect").click()
-# }
-# setInterval(ClickConnect,60000)
+'''
+function ClickConnect(){
+console.log("Working");
+document.querySelector("colab-toolbar-button#connect").click()
+}
+setInterval(ClickConnect,60000)
+'''

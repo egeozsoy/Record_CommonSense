@@ -14,6 +14,7 @@ class CustomModel(nn.Module):
         self.linear = nn.Linear(hidden_state * 4, 50)
 
     def get_sentence_tensor(self, sentences):
+        # This embeddings runs very fast if dataloader already added embedding to the sentences
         self.embeddings.embed(sentences)
 
         lengths: List[int] = [len(sentence.tokens) for sentence in sentences]
