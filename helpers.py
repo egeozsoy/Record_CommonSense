@@ -1,5 +1,8 @@
 import json
 import numpy as np
+import torch
+
+from configurations import device
 
 
 def prepare_data(json_file_path):
@@ -65,3 +68,18 @@ def prepare_data(json_file_path):
 
     with open('{}_processed.json'.format(json_file_path.split('.json')[0]), 'w') as f:
         json.dump(prepared_data, f)
+
+
+def pad_tensors(tensor_list):
+    max_length = max(len(elem) for elem in tensor_list)
+
+    padded_tensor = torch.zeros((len(tensor_list)), max_length,dtype=torch.long)
+
+    valid_ids = torch.zeros((len(tensor_list)), max_length)
+
+    for idx, elem in enumerate(tensor_list):
+        padded_tensor[idx, :len(elem)] = elem
+        valid_ids[idx, :len(elem)] = 1
+
+    return padded_tensor.to(device=device), valid_ids.to(device=device)
+

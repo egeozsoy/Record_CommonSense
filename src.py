@@ -3,13 +3,13 @@ import torch
 from torch.utils.data import DataLoader
 from torch.optim.adamw import AdamW
 
-from flair.embeddings import StackedEmbeddings, WordEmbeddings, FlairEmbeddings
-
 from helpers import prepare_data
-from embeddings import CustomEmbeddings
+from embeddings import add_custom_tokens_to_tokenizer
 from models import CustomModel
 from datasets import CustomDataset
-from configurations import device
+from configurations import device, model_name
+from transformers import XLNetTokenizer
+from helpers import pad_tensors
 
 preprocess_data = False
 
@@ -17,21 +17,17 @@ if preprocess_data:
     prepare_data('train.json')
     prepare_data('dev.json')
 
-embeddings = StackedEmbeddings(
-    [
-        WordEmbeddings('glove'),
-        FlairEmbeddings('news-forward'),  # Maybe do pooled
-        FlairEmbeddings('news-backward'),
-        CustomEmbeddings(),
-    ]
-)
-
-model = CustomModel(embeddings).to(device=device)
+model = CustomModel().to(device=device)
 loss_fn = nn.BCEWithLogitsLoss()
-optimizer = AdamW(model.parameters(), lr=1e-3)
+optimizer = AdamW(model.parameters(), lr=5e-5)
 
-train_dataset = CustomDataset('train_processed.json', embeddings)
-dev_dataset = CustomDataset('dev_processed.json', embeddings)
+tokenizer = XLNetTokenizer.from_pretrained(model_name)
+add_custom_tokens_to_tokenizer(tokenizer)
+# Because we added new tokens
+model.xlnet.resize_token_embeddings(len(tokenizer))
+
+train_dataset = CustomDataset('train_processed.json', tokenizer)
+dev_dataset = CustomDataset('dev_processed.json', tokenizer)
 # collate fn overwrite is necessary as dataset is not returning tensors
 train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=0, pin_memory=True, collate_fn=lambda x: x)
 dev_loader = DataLoader(dev_dataset, batch_size=32, shuffle=True, num_workers=0, pin_memory=True, collate_fn=lambda x: x)
@@ -42,9 +38,12 @@ for epoch in range(1000):
     print(f'Epoch: {epoch}')
     print('Training Model')
     for idx, batch in enumerate(train_loader):
-        passage_sentences, answer_sentences, y = list(zip(*batch))
+        input_ids, y = list(zip(*batch))
+        # TODO valid ids mask is needed
+        input_ids, valid_ids = pad_tensors(input_ids)
         y = torch.stack(y).to(device=device)
-        output = model(passage_sentences, answer_sentences)
+
+        output = model(input_ids, valid_ids)
 
         loss = loss_fn(output, y)
 
@@ -71,9 +70,11 @@ for epoch in range(1000):
 
     with torch.no_grad():
         for idx, batch in enumerate(dev_loader):
-            passage_sentences, answer_sentences, y = list(zip(*batch))
+            input_ids, y = list(zip(*batch))
+            input_ids, valid_ids = pad_tensors(input_ids)
             y = torch.stack(y).to(device=device)
-            output = model(passage_sentences, answer_sentences)
+
+            output = model(input_ids, valid_ids)
 
             loss = loss_fn(output, y)
 
