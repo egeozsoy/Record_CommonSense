@@ -5,4 +5,6 @@ if torch.cuda.is_available():
 else:
     device = torch.device('cpu')
 
-model_name = 'xlnet-base-cased'
+model_name = 'xlnet-large-cased'
+batch_size = 2
+accumulation_steps = 16

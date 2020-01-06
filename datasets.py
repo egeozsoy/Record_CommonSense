@@ -6,7 +6,7 @@ import numpy as np
 
 
 class CustomDataset(Dataset):
-    def __init__(self, file_path, tokenizer, limit=2):
+    def __init__(self, file_path, tokenizer, limit=100000):
         self.tokenizer = tokenizer
 
         with open(file_path) as f:

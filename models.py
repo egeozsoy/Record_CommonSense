@@ -1,11 +1,11 @@
 from typing import List
+from math import ceil
 
 import torch
 from torch import nn
 from transformers import XLNetModel
 
 from configurations import device, model_name
-
 
 '''
 mems: (optional)
@@ -16,15 +16,21 @@ list of torch.FloatTensor (one for each layer): that contains pre-computed hidde
 class CustomModel(nn.Module):
     def __init__(self):
         super(CustomModel, self).__init__()
-        self.xlnet = XLNetModel.from_pretrained(model_name, mem_len=1024)
+        self.xlnet = XLNetModel.from_pretrained(model_name, mem_len=512)
         self.linear = nn.Linear(self.xlnet.d_model, 50)
+        self.max_seq_length = 128  # How much we want to feed at once
 
-    def forward(self, input_ids,attention_mask):
+    def forward(self, input_ids, attention_mask):
         # TODO make sure we are masking correctly
-        output = self.xlnet(input_ids,attention_mask=attention_mask)[0]
+        mems = None
+
+        for i in range(ceil(input_ids.shape[-1] / self.max_seq_length)):
+            mini_input_ids = input_ids[:, i * self.max_seq_length:i * self.max_seq_length + self.max_seq_length]
+            mini_attention_mask = attention_mask[:, i * self.max_seq_length:i * self.max_seq_length + self.max_seq_length]
+            output, mems = self.xlnet(mini_input_ids, mems=mems, attention_mask=mini_attention_mask)
 
         # Pooling might be better, right now we are just taking the last element
-        output = output[:, -1, :]
+        output = output[:, 0, :]
 
         output = self.linear(output)
 

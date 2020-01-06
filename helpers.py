@@ -73,7 +73,7 @@ def prepare_data(json_file_path):
 def pad_tensors(tensor_list):
     max_length = max(len(elem) for elem in tensor_list)
 
-    padded_tensor = torch.zeros((len(tensor_list)), max_length,dtype=torch.long)
+    padded_tensor = torch.zeros((len(tensor_list)), max_length, dtype=torch.long)
 
     valid_ids = torch.zeros((len(tensor_list)), max_length)
 
@@ -82,4 +82,3 @@ def pad_tensors(tensor_list):
         valid_ids[idx, :len(elem)] = 1
 
     return padded_tensor.to(device=device), valid_ids.to(device=device)
-

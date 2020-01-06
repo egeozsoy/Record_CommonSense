@@ -7,9 +7,28 @@ from helpers import prepare_data
 from embeddings import add_custom_tokens_to_tokenizer
 from models import CustomModel
 from datasets import CustomDataset
-from configurations import device, model_name
+from configurations import device, model_name, batch_size, accumulation_steps
 from transformers import XLNetTokenizer
 from helpers import pad_tensors
+
+
+class GradientAccumulator:
+    def __init__(self, bs):
+        self.bs = bs
+        self.acc = 0
+
+    def update_gradients(self, optimizer, loss):
+        loss.backward()
+
+        if self.acc >= self.bs:
+            self.acc = 0
+            optimizer.step()
+
+            optimizer.zero_grad()
+
+        else:
+            self.acc += 1
+
 
 preprocess_data = False
 
@@ -29,17 +48,21 @@ model.xlnet.resize_token_embeddings(len(tokenizer))
 train_dataset = CustomDataset('train_processed.json', tokenizer)
 dev_dataset = CustomDataset('dev_processed.json', tokenizer)
 # collate fn overwrite is necessary as dataset is not returning tensors
-train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=0, pin_memory=True, collate_fn=lambda x: x)
-dev_loader = DataLoader(dev_dataset, batch_size=32, shuffle=True, num_workers=0, pin_memory=True, collate_fn=lambda x: x)
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=True, collate_fn=lambda x: x)
+dev_loader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=True, collate_fn=lambda x: x)
+
+grad_accumulator = GradientAccumulator(accumulation_steps)
 
 for epoch in range(1000):
     total_loss = 0.0
+    total_correct_guesses = 0.0
+    total_total_guesses = 0.0
     model.train()
     print(f'Epoch: {epoch}')
     print('Training Model')
     for idx, batch in enumerate(train_loader):
         input_ids, y = list(zip(*batch))
-        # TODO valid ids mask is needed
+
         input_ids, valid_ids = pad_tensors(input_ids)
         y = torch.stack(y).to(device=device)
 
@@ -47,24 +70,28 @@ for epoch in range(1000):
 
         loss = loss_fn(output, y)
 
-        loss.backward()
-        optimizer.step()
-        optimizer.zero_grad()
+        grad_accumulator.update_gradients(optimizer, loss)
 
         total_loss += loss.item()
 
-        if idx % 10 == 0:
-            print(f'Training Loss: {total_loss}')
+        # Using maximum of output, select corresponding elements from labels https://discuss.pytorch.org/t/how-to-index-a-tensor-with-another-tensor/25031
+        y_selected = y.gather(1, torch.argmax(output, dim=1, keepdim=True))
+        correct_guesses = float(torch.sum(y_selected).item())
+        total_guesses = float(y_selected.shape[0])
+
+        total_correct_guesses += correct_guesses
+        total_total_guesses += total_guesses
+
+        if idx % 1000 == 0:
+            print(f'Training Loss: {total_loss:.4f}, Acc: {total_correct_guesses / total_total_guesses:.4f}\n')
+
             total_loss = 0.0
-
-            # Using maximum of output, select corresponding elements from labels https://discuss.pytorch.org/t/how-to-index-a-tensor-with-another-tensor/25031
-            y_selected = y.gather(1, torch.argmax(output, dim=1, keepdim=True))
-            correct_guesses = float(torch.sum(y_selected).item())
-            total_guesses = float(y_selected.shape[0])
-
-            print(f'Training Acc: {correct_guesses / total_guesses}\n')
+            total_correct_guesses = 0.0
+            total_total_guesses = 0.0
 
     total_loss = 0.0
+    total_correct_guesses = 0.0
+    total_total_guesses = 0.0
     model.eval()
     print('Validating Model')
 
@@ -80,16 +107,16 @@ for epoch in range(1000):
 
             total_loss += loss.item()
 
-            if idx % 10 == 0:
-                print(f'Validation Loss: {total_loss}')
-                total_loss = 0.0
+            # Using maximum of output, select corresponding elements from labels https://discuss.pytorch.org/t/how-to-index-a-tensor-with-another-tensor/25031
+            y_selected = y.gather(1, torch.argmax(output, dim=1, keepdim=True))
+            correct_guesses = float(torch.sum(y_selected).item())
+            total_guesses = float(y_selected.shape[0])
 
-                # Using maximum of output, select corresponding elements from labels https://discuss.pytorch.org/t/how-to-index-a-tensor-with-another-tensor/25031
-                y_selected = y.gather(1, torch.argmax(output, dim=1, keepdim=True))
-                correct_guesses = float(torch.sum(y_selected).item())
-                total_guesses = float(y_selected.shape[0])
+            total_correct_guesses += correct_guesses
+            total_total_guesses += total_guesses
 
-                print(f'Validation Acc: {correct_guesses / total_guesses}\n')
+            if idx % 1000 == 0:
+                print(f'Validation Loss: {total_loss:.4f}, Acc: {total_correct_guesses / total_total_guesses:.4f}\n')
 
 #  cp *.py /Users/egeozsoy/Google_Drive/Python\ Projects/Record_CommonSense/.
 '''
