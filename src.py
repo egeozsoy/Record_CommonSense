@@ -9,7 +9,7 @@ from models import CustomModel
 from datasets import CustomDataset
 from configurations import device, model_name, batch_size, accumulation_steps
 from transformers import XLNetTokenizer
-from helpers import pad_tensors
+from helpers import pad_tensors, nvidia_debug_output
 
 
 class GradientAccumulator:
@@ -38,7 +38,8 @@ if preprocess_data:
 
 model = CustomModel().to(device=device)
 loss_fn = nn.BCEWithLogitsLoss()
-optimizer = AdamW(model.parameters(), lr=5e-5)
+# optimizer = AdamW(model.parameters(), lr=5e-5)
+optimizer = AdamW(model.parameters(), lr=5e-4)
 
 tokenizer = XLNetTokenizer.from_pretrained(model_name)
 add_custom_tokens_to_tokenizer(tokenizer)
@@ -48,8 +49,8 @@ model.xlnet.resize_token_embeddings(len(tokenizer))
 train_dataset = CustomDataset('train_processed.json', tokenizer)
 dev_dataset = CustomDataset('dev_processed.json', tokenizer)
 # collate fn overwrite is necessary as dataset is not returning tensors
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=True, collate_fn=lambda x: x)
-dev_loader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=True, collate_fn=lambda x: x)
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=1, pin_memory=True, collate_fn=lambda x: x)
+dev_loader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=True, num_workers=1, pin_memory=True, collate_fn=lambda x: x)
 
 grad_accumulator = GradientAccumulator(accumulation_steps)
 
@@ -88,6 +89,9 @@ for epoch in range(1000):
             total_loss = 0.0
             total_correct_guesses = 0.0
             total_total_guesses = 0.0
+
+            if device != 'cpu':
+                nvidia_debug_output()
 
     total_loss = 0.0
     total_correct_guesses = 0.0

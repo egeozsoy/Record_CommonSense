@@ -16,7 +16,7 @@ list of torch.FloatTensor (one for each layer): that contains pre-computed hidde
 class CustomModel(nn.Module):
     def __init__(self):
         super(CustomModel, self).__init__()
-        self.xlnet = XLNetModel.from_pretrained(model_name, mem_len=512)
+        self.xlnet = XLNetModel.from_pretrained(model_name, mem_len=1024)
         self.linear = nn.Linear(self.xlnet.d_model, 50)
         self.max_seq_length = 128  # How much we want to feed at once
 

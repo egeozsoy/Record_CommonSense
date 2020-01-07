@@ -1,6 +1,7 @@
 import json
 import numpy as np
 import torch
+import subprocess
 
 from configurations import device
 
@@ -82,3 +83,11 @@ def pad_tensors(tensor_list):
         valid_ids[idx, :len(elem)] = 1
 
     return padded_tensor.to(device=device), valid_ids.to(device=device)
+
+
+def nvidia_debug_output():
+    sp = subprocess.Popen(['nvidia-smi'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    out_str, _ = sp.communicate()
+    print(out_str.decode())
+    print()
