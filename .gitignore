@@ -3,3 +3,5 @@
 .idea
 /dev.json
 /dev_processed.json
+/dev_processed_longest.json
+/train_processed_longest.json

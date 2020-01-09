@@ -3,17 +3,38 @@ from math import ceil
 
 import torch
 from torch import nn
-from transformers import XLNetModel
+from transformers import XLNetModel, RobertaModel
 
-from configurations import device, model_name
-
-'''
-mems: (optional)
-list of torch.FloatTensor (one for each layer): that contains pre-computed hidden-states (key and values in the attention blocks) as output by the model (see mems output below). Can be used to speed up sequential decoding and attend to longer context. To activate mems you need to set up config.mem_len to a positive value which will be the max number of tokens in the memory output by the model. E.g. model = XLNetModel.from_pretrained(‘xlnet-base-case, mem_len=1024) will instantiate a model which can use up to 1024 tokens of memory (in addition to the input it self).
-'''
+from configurations import device, model_name, maximum_allowed_length
 
 
 class CustomModel(nn.Module):
+    def __init__(self):
+        super(CustomModel, self).__init__()
+        self.roberta = RobertaModel.from_pretrained(model_name)
+
+        if maximum_allowed_length > 512:
+            old_position_embeddings = self.roberta.embeddings.position_embeddings
+            self.roberta.embeddings.position_embeddings = nn.Embedding(maximum_allowed_length, self.roberta.config.hidden_size)
+            # Use old weights
+            self.roberta.embeddings.position_embeddings.weight.data[:old_position_embeddings.weight.shape[0]] = old_position_embeddings.weight.data
+
+            self.roberta.config.max_position_embeddings = maximum_allowed_length
+
+        self.dropout = nn.Dropout(0.1)
+
+        self.fc = nn.Linear(self.roberta.config.hidden_size, 50)
+
+    def forward(self, input_ids, attention_mask, token_type_ids):
+        _, pooled_output = self.roberta.forward(input_ids, attention_mask=attention_mask)
+
+        pooled_output = self.dropout(pooled_output)
+        pooled_output = self.fc(pooled_output)
+
+        return pooled_output
+
+
+class CustomXLNETModel(nn.Module):
     def __init__(self):
         super(CustomModel, self).__init__()
         self.xlnet = XLNetModel.from_pretrained(model_name, mem_len=1024)
