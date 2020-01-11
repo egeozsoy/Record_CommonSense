@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from torch import nn
 import torch
 from torch.utils.data import DataLoader
@@ -7,9 +9,9 @@ from helpers import prepare_data
 from embeddings import add_custom_tokens_to_tokenizer
 from models import CustomModel
 from datasets import CustomDataset
-from configurations import device, model_name, batch_size, accumulation_steps, num_workers
-from transformers import XLNetTokenizer, RobertaTokenizer
-from helpers import pad_tensors, nvidia_debug_output
+from configurations import device, model_name, batch_size, accumulation_steps, num_workers, gdrive_path, model_path
+from transformers import RobertaTokenizer
+from helpers import pad_tensors, nvidia_debug_output, print_log
 
 
 class GradientAccumulator:
@@ -37,8 +39,11 @@ if preprocess_data:
     prepare_data('dev.json')
 
 model = CustomModel().to(device=device)
+
+if model_path.exists():
+    model.load_state_dict(torch.load(model_path.absolute()))
+
 loss_fn = nn.BCEWithLogitsLoss()
-# optimizer = AdamW(model.parameters(), lr=5e-5)
 optimizer = AdamW(model.parameters(), lr=2e-5)
 
 tokenizer = RobertaTokenizer.from_pretrained(model_name)
@@ -55,16 +60,18 @@ dev_loader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=True, num_wo
 grad_accumulator = GradientAccumulator(accumulation_steps)
 
 prev_total_training_loss = 0.0
-# TODO fix class imbalance
+prev_total_validation_loss = 0.0
 
-for epoch in range(1000):
+epochs = 51
+
+for epoch in range(epochs):
     total_loss = 0.0
     total_correct_guesses = 0.0
     total_total_guesses = 0.0
     total_training_loss = 0.0
     model.train()
-    print(f'Epoch: {epoch}')
-    print('Training Model')
+    print_log(f'Epoch: {epoch}')
+    print_log('Training Model')
     for idx, batch in enumerate(train_loader):
         input_ids, token_type_ids, y = list(zip(*batch))
 
@@ -89,10 +96,10 @@ for epoch in range(1000):
         total_total_guesses += total_guesses
 
         if idx % (len(train_loader) // 10) == 0 and idx > 0:
-            print(f'Training Loss: {total_loss:.4f}, Acc: {total_correct_guesses / total_total_guesses:.4f}\n')
+            print_log(f'Training Loss: {total_loss:.4f}, Acc: {total_correct_guesses / total_total_guesses:.4f}\n')
 
-            print(torch.argmax(output, dim=1).cpu().numpy())
-            print(torch.argmax(y, dim=1).cpu().numpy())
+            print_log(torch.argmax(output, dim=1).cpu().numpy())
+            print_log(torch.argmax(y, dim=1).cpu().numpy())
 
             total_loss = 0.0
             total_correct_guesses = 0.0
@@ -102,14 +109,15 @@ for epoch in range(1000):
                 nvidia_debug_output()
                 pass
 
-    print(f'TL: {total_training_loss:.4f} PTL: {prev_total_training_loss:.4f}')
+    print_log(f'TL: {total_training_loss:.4f} PTL: {prev_total_training_loss:.4f}')
     prev_total_training_loss = total_training_loss
 
     total_loss = 0.0
     total_correct_guesses = 0.0
     total_total_guesses = 0.0
+    total_validation_loss = 0.0
     model.eval()
-    print('Validating Model')
+    print_log('Validating Model')
 
     with torch.no_grad():
         for idx, batch in enumerate(dev_loader):
@@ -123,6 +131,7 @@ for epoch in range(1000):
             loss = loss_fn(output, y)
 
             total_loss += loss.item()
+            total_validation_loss += loss.item()
 
             # Using maximum of output, select corresponding elements from labels https://discuss.pytorch.org/t/how-to-index-a-tensor-with-another-tensor/25031
             y_selected = y.gather(1, torch.argmax(output, dim=1, keepdim=True))
@@ -132,12 +141,18 @@ for epoch in range(1000):
             total_correct_guesses += correct_guesses
             total_total_guesses += total_guesses
 
-            if idx % (len(dev_loader) // 5) == 0 and idx > 0:
-                print(f'Validation Loss: {total_loss:.4f}, Acc: {total_correct_guesses / total_total_guesses:.4f}\n')
+            if idx % (len(dev_loader) // 10) == 0 and idx > 0:
+                print_log(f'Validation Loss: {total_loss:.4f}, Acc: {total_correct_guesses / total_total_guesses:.4f}\n')
 
                 total_loss = 0.0
                 total_correct_guesses = 0.0
                 total_total_guesses = 0.0
+
+    print_log(f'Validation TL: {total_validation_loss:.4f} PTL: {prev_total_validation_loss:.4f}')
+    prev_total_validation_loss = total_validation_loss
+
+    if gdrive_path.exists():
+        torch.save(model.state_dict(), (model_path).absolute())
 
 #  cp *.py /Users/egeozsoy/Google_Drive/Python\ Projects/Record_CommonSense/.
 '''

@@ -1,9 +1,15 @@
 import json
+import logging
 import numpy as np
 import torch
 import subprocess
 
 from configurations import device, maximum_allowed_length
+
+
+def print_log(message):
+    print(message)
+    logging.info(message)
 
 
 def prepare_data(json_file_path):
@@ -80,14 +86,14 @@ def prepare_data(json_file_path):
     with open('{}_processed.json'.format(json_file_path.split('.json')[0]), 'w') as f:
         json.dump(prepared_data, f)
 
-    print(f'Loaded {len(prepared_data)} samples')
-    print(f'Maximum Sample Length is {len(longest_data[0][0]) + len(longest_data[0][1])}')
+    print_log(f'Loaded {len(prepared_data)} samples')
+    print_log(f'Maximum Sample Length is {len(longest_data[0][0]) + len(longest_data[0][1])}')
 
     with open('{}_processed_longest.json'.format(json_file_path.split('.json')[0]), 'w') as f:
         json.dump(longest_data + longest_data + longest_data + longest_data + longest_data + longest_data + longest_data + longest_data, f)
 
 
-def pad_tensors(tensor_list,tensor_list2):
+def pad_tensors(tensor_list, tensor_list2):
     max_length = max(len(elem) for elem in tensor_list)
 
     padded_tensor = torch.zeros((len(tensor_list)), max_length, dtype=torch.long)
@@ -96,7 +102,7 @@ def pad_tensors(tensor_list,tensor_list2):
 
     valid_ids = torch.zeros((len(tensor_list)), max_length)
 
-    for idx, (elem1,elem2) in enumerate(zip(tensor_list,tensor_list2)):
+    for idx, (elem1, elem2) in enumerate(zip(tensor_list, tensor_list2)):
         padded_tensor[idx, :len(elem1)] = elem1
         padded_tensor2[idx, :len(elem2)] = elem2
         valid_ids[idx, :len(elem1)] = 1
@@ -108,5 +114,5 @@ def nvidia_debug_output():
     sp = subprocess.Popen(['nvidia-smi'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     out_str, _ = sp.communicate()
-    print(out_str.decode())
-    print()
+    print_log(out_str.decode())
+    print_log()

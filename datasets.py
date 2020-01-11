@@ -6,14 +6,16 @@ import numpy as np
 
 from transformers import RobertaTokenizer
 
+from helpers import print_log
+
 
 class CustomDataset(Dataset):
-    def __init__(self, file_path, tokenizer: RobertaTokenizer, limit=100000):
+    def __init__(self, file_path, tokenizer: RobertaTokenizer, limit=10000000):
         self.tokenizer: RobertaTokenizer = tokenizer
 
         with open(file_path) as f:
             self.json_file = json.load(f)[:limit]
-            print(f'Data Size {len(self.json_file)}')
+            print_log(f'Data Size {len(self.json_file)}')
 
     def __len__(self) -> int:
         return len(self.json_file)

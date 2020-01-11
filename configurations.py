@@ -1,3 +1,5 @@
+from pathlib import Path
+import logging
 import torch
 
 if torch.cuda.is_available():
@@ -5,10 +7,15 @@ if torch.cuda.is_available():
 else:
     device = torch.device('cpu')
 
-# model_name = 'xlnet-large-cased'
-model_name = 'roberta-base'
-batch_size = 4
+model_name = 'roberta-large'
+batch_size = 2
 accumulation_steps = 32 // batch_size
 
 maximum_allowed_length = 1600
 num_workers = 1
+
+gdrive_path = Path('/content/gdrive/My Drive/Python Projects/Record_CommonSense')
+log_path = gdrive_path / 'output.log'
+model_path = gdrive_path / 'model.pth'
+
+logging.basicConfig(filename=log_path, filemode='w', format='%(message)s', level=0)
