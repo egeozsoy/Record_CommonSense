@@ -7,7 +7,7 @@ import subprocess
 from configurations import device, maximum_allowed_length
 
 
-def print_log(message):
+def print_log(message=''):
     print(message)
     logging.info(message)
 

@@ -4,27 +4,30 @@ from torch import nn
 import torch
 from torch.utils.data import DataLoader
 from torch.optim.adamw import AdamW
+from torch.optim.optimizer import Optimizer
+from transformers import RobertaTokenizer, get_linear_schedule_with_warmup
 
-from helpers import prepare_data
+from helpers import prepare_data, pad_tensors, nvidia_debug_output, print_log
 from embeddings import add_custom_tokens_to_tokenizer
 from models import CustomModel
 from datasets import CustomDataset
-from configurations import device, model_name, batch_size, accumulation_steps, num_workers, gdrive_path, model_path
-from transformers import RobertaTokenizer
-from helpers import pad_tensors, nvidia_debug_output, print_log
+from configurations import device, model_name, batch_size, accumulation_steps, num_workers, gdrive_path, model_path, warmup_steps, optimizer_path, \
+    scheduler_path
 
 
 class GradientAccumulator:
-    def __init__(self, bs):
-        self.bs = bs
-        self.acc = 0
+    def __init__(self, bs: int):
+        self.bs: int = bs
+        self.acc: int = 0
 
-    def update_gradients(self, optimizer, loss):
+    def update_gradients(self, optimizer: Optimizer, scheduler, loss):
         loss.backward()
 
         if self.acc >= self.bs:
             self.acc = 0
+
             optimizer.step()
+            scheduler.step()
 
             optimizer.zero_grad()
 
@@ -32,43 +35,57 @@ class GradientAccumulator:
             self.acc += 1
 
 
-preprocess_data = False
+preprocess_data: bool = False
 
 if preprocess_data:
     prepare_data('train.json')
     prepare_data('dev.json')
 
-model = CustomModel().to(device=device)
+model: nn.Module = CustomModel().to(device=device)
 
-if model_path.exists():
-    model.load_state_dict(torch.load(model_path.absolute()))
+loss_fn: nn.BCEWithLogitsLoss = nn.BCEWithLogitsLoss()
+optimizer: Optimizer = AdamW(model.parameters(), lr=2e-5)
 
-loss_fn = nn.BCEWithLogitsLoss()
-optimizer = AdamW(model.parameters(), lr=2e-5)
-
-tokenizer = RobertaTokenizer.from_pretrained(model_name)
+tokenizer: RobertaTokenizer = RobertaTokenizer.from_pretrained(model_name)
 add_custom_tokens_to_tokenizer(tokenizer)
 # Because we added new tokens
 model.roberta.resize_token_embeddings(len(tokenizer))
 
-train_dataset = CustomDataset('train_processed.json', tokenizer)
-dev_dataset = CustomDataset('dev_processed.json', tokenizer)
+if model_path.exists():
+    print_log('Loading Model')
+    model.load_state_dict(torch.load(model_path.absolute()))
+
+train_dataset: torch.utils.data.Dataset = CustomDataset('train_processed.json', tokenizer)
+dev_dataset: torch.utils.data.Dataset = CustomDataset('dev_processed.json', tokenizer)
 # collate fn overwrite is necessary as dataset is not returning tensors
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True, collate_fn=lambda x: x)
-dev_loader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True, collate_fn=lambda x: x)
+train_loader: torch.utils.data.DataLoader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True,
+                                                       collate_fn=lambda x: x)
+dev_loader: torch.utils.data.DataLoader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True,
+                                                     collate_fn=lambda x: x)
 
-grad_accumulator = GradientAccumulator(accumulation_steps)
+grad_accumulator: GradientAccumulator = GradientAccumulator(accumulation_steps)
 
-prev_total_training_loss = 0.0
-prev_total_validation_loss = 0.0
+prev_total_training_loss: float = 0.0
+prev_total_validation_loss: float = 0.0
 
-epochs = 51
+epochs: int = 5
+
+total_training_steps = len(train_loader) // accumulation_steps * epochs
+scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=warmup_steps, num_training_steps=total_training_steps)
+
+if optimizer_path.exists():
+    print_log('Loading Optimizer')
+    optimizer.load_state_dict(torch.load(optimizer_path.absolute()))
+
+if scheduler_path.exists():
+    print_log('Loading Scheduler')
+    scheduler.load_state_dict(torch.load(scheduler_path.absolute()))
 
 for epoch in range(epochs):
-    total_loss = 0.0
-    total_correct_guesses = 0.0
-    total_total_guesses = 0.0
-    total_training_loss = 0.0
+    total_loss: float = 0.0
+    total_correct_guesses: float = 0.0
+    total_total_guesses: float = 0.0
+    total_training_loss: float = 0.0
     model.train()
     print_log(f'Epoch: {epoch}')
     print_log('Training Model')
@@ -82,7 +99,7 @@ for epoch in range(epochs):
 
         loss = loss_fn(output, y)
 
-        grad_accumulator.update_gradients(optimizer, loss)
+        grad_accumulator.update_gradients(optimizer, scheduler, loss)
 
         total_loss += loss.item()
         total_training_loss += loss.item()
@@ -107,7 +124,6 @@ for epoch in range(epochs):
 
             if device.type != 'cpu' and epoch == 0:
                 nvidia_debug_output()
-                pass
 
     print_log(f'TL: {total_training_loss:.4f} PTL: {prev_total_training_loss:.4f}')
     prev_total_training_loss = total_training_loss
@@ -152,7 +168,9 @@ for epoch in range(epochs):
     prev_total_validation_loss = total_validation_loss
 
     if gdrive_path.exists():
-        torch.save(model.state_dict(), (model_path).absolute())
+        torch.save(model.state_dict(), model_path.absolute())
+        torch.save(optimizer.state_dict(), optimizer_path.absolute())
+        torch.save(scheduler.state_dict(), scheduler_path.absolute())
 
 #  cp *.py /Users/egeozsoy/Google_Drive/Python\ Projects/Record_CommonSense/.
 '''
